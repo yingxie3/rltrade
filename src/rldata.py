@@ -4,6 +4,8 @@ import rltrain
 import dateutil
 import json
 import os
+import pdb
+import pickle
 import urllib.request
 
 BASEURL="https://www.quandl.com/api/v3/datatables/WIKI/PRICES.json?qopts.columns=date,adj_open,adj_close,adj_volume"
@@ -59,6 +61,7 @@ def main():
     parser = argparse.ArgumentParser(description='downloading data from quandl')
     parser.add_argument("-i", "--input", help="Set input file name.")
     parser.add_argument("-o", "--output", help="Set output directory name.")
+    parser.add_argument("-t", "--train", help="Set training directory name.")
     parser.add_argument("-k", "--key", help="Set the quandl api key")
 
     args = parser.parse_args()
@@ -66,15 +69,21 @@ def main():
         args.input = "{}/../data/sp500.csv".format(currentDir)
     if args.output == None:
         args.output = "{}/../data/downloaded".format(currentDir)
+    if args.train == None:
+        args.train = "{}/../data/train".format(currentDir)
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
+    if not os.path.exists(args.train):
+        os.makedirs(args.train)
 
     # download again if the output directory doesn't have any json files
-    found = False
+    companies = []
     for filename in os.listdir(args.output):
         if filename.endswith(".json"): 
-            found = True
-            break
+            companies.append(filename.split('.')[0])    
 
-    if not found:
+    if len(companies) == 0:
         if args.key == None:
             print("argements not specified, run with -h to see the help")
             exit(0)
@@ -87,9 +96,14 @@ def main():
                 print("reading {}\n".format(ar[0]))
                 urlstr = "{}&api_key={}&ticker={}".format(BASEURL, args.key, ar[0])
                 urllib.request.urlretrieve(urlstr, "{}/{}.json".format(args.output, ar[0]))
+                companies.append(ar[0])
 
     # Process the json files into binary files. We currently do this in a single thread. 
     # This is OK since we only do this once. No need to be fancy.
+    for cName in companies:
+        company = processJsonData(cName, "{}/{}.json".format(args.output, cName))
+        if company != None:
+            pickle.dump(company, open("{}/{}.p".format(args.train, company.name), "wb"))
 
 if __name__ == '__main__':
     main()
