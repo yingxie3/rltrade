@@ -34,19 +34,20 @@ def processJsonData(companyName, filename):
             print("discarding stock")
             return None
 
-        for d in dataArray:
+        company.resetData(len(dataArray))
+        for index, d in enumerate(dataArray):
             #sanity check
             for i in range(MAX_INDEX):
                 if d[i] == None or d[i] == 0:
                     print("found zero entry: {}".format(d))
                     # we discard all data before this
-                    company.data = []
+                    company.resetData(len(dataArray) - (index+1))
 
             dateValue = dateutil.parser.parse(d[DATE_INDEX])
             company.addEntry(dateValue, d[OPEN_INDEX], d[CLOSE_INDEX], d[VOLUME_INDEX])
 
         # we only allow companies with enough data.
-        if len(company.data) < 500:
+        if company.getDataLen() < 500:
             print("discarding stock {}".format(companyName))
             return None
         return company
@@ -103,6 +104,7 @@ def main():
     for cName in companies:
         company = processJsonData(cName, "{}/{}.json".format(args.output, cName))
         if company != None:
+            company.generateWeeklyData()
             pickle.dump(company, open("{}/{}.p".format(args.train, company.name), "wb"))
 
 if __name__ == '__main__':
