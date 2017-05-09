@@ -66,59 +66,62 @@ class Company(object):
             lastWeekday = currentWeekDay
 
 # A position is the company, plus the holding information. 
-class Position(Company):
+class Position(object):
     WIDTH = 50
     HEIGHT = 6 
     actionList = [-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0]
     ACTION_SIZE = len(actionList)
 
-    def __init__(self):
+    def __init__(self, comp):
         self.holding = 0 # 0.2 means 20% cash in this stock
         self.currentWeek = self.WIDTH # index to the current week, this allows WIDTH/(WIDTH-1)
+        self.company = comp
 
         # move to the next week, this is the date we will match for the daily data.
-        weekDate = self.weeklyDates[self.WIDTH+1]
+        weekDate = self.company.weeklyDates[self.WIDTH+1]
 
         # index for the current day. The date above is the Monday's date for the weekly data.
         # The current need to be at least that. The following formula guarantees it,
         # because some of the weeks have fewer than 5 days.
         self.current = (self.WIDTH+1) * 5
-        date = self.dates[self.current]
+        date = self.company.dates[self.current]
         assert date >= weekDate
 
         # move date back to be the same as weekDate
         while date > weekDate:
             self.current -= 1
-            date = self.dates[self.current]
+            date = self.company.dates[self.current]
         assert self.current >= (self.WIDTH+1) * 5 - 10  # only that many holidays in a year
 
         # we always store the np array representation of the current data.
-        self.dailyPriceDelta = self.prices[self.current+1-self.WIDTH:self.current+1] /       \
-            self.prices[self.current-self.WIDTH:self.current] - 1.0
-        self.weeklyPriceDelta = self.weeklyPrices[1:self.WIDTH+1] / self.weeklyPrices[0:self.WIDTH] - 1.0
+        self.dailyPriceDelta = self.company.prices[self.current+1-self.WIDTH:self.current+1] /       \
+            self.company.prices[self.current-self.WIDTH:self.current] - 1.0
+        self.weeklyPriceDelta = self.company.weeklyPrices[1:self.WIDTH+1] / self.company.weeklyPrices[0:self.WIDTH] - 1.0
         #self.data = np.concatenate((dailyPriceDelta, weeklyPriceDelta), axis=1)
 
-    # advance current by one trading day, returns the immediate reward (in percentage)
+    # advance current by one trading day, returns the immediate incremental reward (in percentage)
+    # and whether this is the last entry.
     def advance(self):
-        previousDay = self.dates[self.current].weekday()
+        previousDay = self.company.dates[self.current].weekday()
         self.current += 1
 
-        if self.dates[self.current].weekday() < previousDay:
+        if self.company.dates[self.current].weekday() < previousDay:
             # a new week, advance week array
             self.currentWeek += 1
             np.roll(self.weeklyPriceDelta, 1, axis=0)
-            self.weeklyPriceDelta[self.WIDTH-1] = self.weeklyPrices[self.currentWeek] / self.weeklyPrices[self.currentWeek-1] - 1.0
+            self.weeklyPriceDelta[self.WIDTH-1] = self.company.weeklyPrices[self.currentWeek] /   \
+                self.company.weeklyPrices[self.currentWeek-1] - 1.0
         
-        assert self.dates[self.current] > self.weeklyDates[self.currentWeek]
+        assert self.company.dates[self.current] > self.company.weeklyDates[self.currentWeek]
         np.roll(self.dailyPriceDelta, 1, axis=0)
-        self.dailyPriceDelta[self.WIDTH-1] = self.prices[self.current] / self.prices[self.current-1] - 1.0
+        self.dailyPriceDelta[self.WIDTH-1] = self.company.prices[self.current] / self.company.prices[self.current-1] - 1.0
 
         # get the reward using close price
-        return self.dailyPriceDelta[self.WIDTH-1] * self.holding
+        return self.dailyPriceDelta[self.WIDTH-1][self.company.CLOSE_INDEX] * self.holding, self.current+1 == len(self.company.dates)
 
     # given holding and index, get the reward for the next day
     def getReward(self, dailyIndex, holding):
-        return (self.prices[dailyIndex+1] / self.prices[dailyIndex] - 1.0) * holding
+        return (self.company.prices[dailyIndex+1] / self.company.prices[dailyIndex] - 1.0) * holding
 
     # get the current state (50x6 graph)
     def getOne(self):
@@ -127,7 +130,7 @@ class Position(Company):
 # When playing, we go through the Position in time order, and store the result below. This allows
 # us to use random batches when training.
 class ReplayHistory(object):
-    def __init__(self, maxMemory=1000, discount=.999):
+    def __init__(self, maxMemory=100000, discount=.999):
         self.maxMemory = maxMemory
         self.memory = []
         self.discount = discount
@@ -177,17 +180,50 @@ def dump(filename):
         print("{} open {} close {} volume {}".format(company.weeklyDates[i], company.weeklyPrices[i][company.OPEN_INDEX], 
             company.weeklyPrices[i][company.CLOSE_INDEX], company.weeklyPrices[i][company.VOLUME_INDEX]))
 
+
+def play(filename):
+    #pdb.set_trace()
+    if filename == None:
+        print("you must specify the data file you want to dump through --input")
+        return
+    company = pickle.load(open(filename, 'rb'))
+    position = Position(company)
+    history = ReplayHistory(discount=1.0)
+
+    print("Playing history for {}".format(company.name))
+    position.holding = 1.0
+    nextPriceDelta = position.getOne()
+    done = False
+    while not done:
+        priceDelta = nextPriceDelta
+        holding = position.holding
+        reward, done = position.advance()
+        nextPriceDelta = position.getOne()
+
+        history.remember(priceDelta, holding, reward, nextPriceDelta, done)
+
+    total = 1.0
+    for idx in range(len(history.memory)):
+        priceDelta, holding, reward, newPriceDelta = history.memory[idx][0]
+        isLast = history.memory[idx][1]
+        holdingIndex = (holding + 1) / 0.2
+        total *= (1 + reward)
+        print("reward {} total {}".format(reward, total))
+        
 def main():
     currentDir = os.path.dirname(os.path.realpath(__file__))
 
     parser = argparse.ArgumentParser(description='Parsing and training')
     parser.add_argument("-d", "--dump", help="Dump data only.")
+    parser.add_argument("-p", "--play", help="Play through one stock history contained in the specified file.")
 
     args = parser.parse_args()
 
     # dump the data for one stock, for data verification only
     if args.dump != None:
         dump(args.dump)
+    elif args.play != None:
+        play(args.play)
 
 if __name__ == '__main__':
     main()
