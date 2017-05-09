@@ -202,13 +202,21 @@ def play(filename):
         history.remember(priceDelta, holding, reward, nextPriceDelta, done)
 
     total = 1.0
+    count = 0
     for idx in range(len(history.memory)):
         priceDelta, holding, reward, newPriceDelta = history.memory[idx][0]
         isLast = history.memory[idx][1]
         holdingIndex = (holding + 1) / 0.2
         total *= (1 + reward)
         print("reward {} total {}".format(reward, total))
-        
+
+        if count < 5:
+            count += 1
+            for w in range(position.WIDTH):
+                print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[w][0], priceDelta[w][1], priceDelta[w][2], 
+                    priceDelta[w][3], priceDelta[w][4], priceDelta[w][5]))
+            print("")
+
 def main():
     currentDir = os.path.dirname(os.path.realpath(__file__))
 
