@@ -108,13 +108,12 @@ class Position(object):
         if self.company.dates[self.current].weekday() < previousDay:
             # a new week, advance week array
             self.currentWeek += 1
-            np.roll(self.weeklyPriceDelta, 1, axis=0)
-            self.weeklyPriceDelta[self.WIDTH-1] = self.company.weeklyPrices[self.currentWeek] /   \
-                self.company.weeklyPrices[self.currentWeek-1] - 1.0
+            newDelta = self.company.weeklyPrices[self.currentWeek] / self.company.weeklyPrices[self.currentWeek-1] - 1.0
+            self.weeklyPriceDelta = np.concatenate((self.weeklyPriceDelta[1:self.WIDTH], [newDelta]), axis=0)
         
         assert self.company.dates[self.current] > self.company.weeklyDates[self.currentWeek]
-        np.roll(self.dailyPriceDelta, 1, axis=0)
-        self.dailyPriceDelta[self.WIDTH-1] = self.company.prices[self.current] / self.company.prices[self.current-1] - 1.0
+        newDelta = self.company.prices[self.current] / self.company.prices[self.current-1] - 1.0
+        self.dailyPriceDelta = np.concatenate((self.dailyPriceDelta[1:self.WIDTH], [newDelta]), axis=0)
 
         # get the reward using close price
         return self.dailyPriceDelta[self.WIDTH-1][self.company.CLOSE_INDEX] * self.holding, self.current+1 == len(self.company.dates)
