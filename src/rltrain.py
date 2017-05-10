@@ -5,6 +5,7 @@ import argparse
 import pdb
 import os
 import pickle
+import json
 import matplotlib.pyplot as plt
 from keras.models import Sequential
 from keras.layers.core import Dense
@@ -139,7 +140,7 @@ class Position(object):
 # When playing, we go through the Position in time order, and store the result below. This allows
 # us to use random batches when training.
 class ReplayHistory(object):
-    def __init__(self, maxMemory=100000, discount=.999):
+    def __init__(self, maxMemory=1000, discount=.999):
         self.maxMemory = maxMemory
         self.memory = []
         self.discount = discount
@@ -262,8 +263,11 @@ def train(stockName):
     validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
     model, board = createModel()
 
-    # model.load_weights("model.h5")
-    #pdb.set_trace()
+    try:
+        model.load_weights("model.h5")
+    except OSError:
+        print("can't find model file to load")
+
     filename = "{}/../data/train/{}.p".format(currentDir, stockName)
     company = pickle.load(open(filename, 'rb'))
     position = Position(company)
@@ -296,21 +300,23 @@ def train(stockName):
             inputs, targets = history.getBatch(model, position.ACTION_SIZE, 32)
             loss = model.train_on_batch(inputs, targets)
 
-            if epoch % 10 == 0:
-                print("Epoch {:03d} | Loss {:.4f}".format(epoch, loss))
+            #if position.current % 10 == 0:
+            print("day {} week {} | loss {:.4f}".format(position.current, position.currentWeek, loss))
 
-                # on_epoch_end requires validataData to be present. It doesn't really need
-                # the data to get the histogram, so we just give is a pre-fabricated one.
-                board.validation_data = validationData
-                logs = {'loss': loss}
-                board.on_epoch_end(epoch, logs)
+        # do some printing and model saving after one epoch
+        print("=========== Epoch {:03d} | Loss {:.4f}".format(epoch, loss))
 
-            # Save trained model weights and architecture, this will be used by the visualization code
-            if epoch % 100 == 0:
-                print("Saving model")
-                model.save_weights("model.h5", overwrite=True)
-                with open("model.json", "w") as outfile:
-                    json.dump(model.to_json(), outfile)
+        # on_epoch_end requires validataData to be present. It doesn't really need
+        # the data to get the histogram, so we just give is a pre-fabricated one.
+        board.validation_data = validationData
+        logs = {'loss': loss}
+        board.on_epoch_end(epoch, logs)
+
+        # Save trained model weights and architecture, this will be used by the visualization code
+        print("Saving model")
+        model.save_weights("model.h5", overwrite=True)
+        with open("model.json", "w") as outfile:
+            json.dump(model.to_json(), outfile)
 
 
 def main():
