@@ -151,14 +151,14 @@ class ReplayHistory(object):
     
     # get batchSize of training samples, mapping states (?x50x6) to action reward values (?x11)
     def getBatch(self, model, actionSize, batchSize):
-        count = min(len(self.maxMemory), batchSize)
+        count = min(len(self.memory), batchSize)
         inputs = np.zeros((count, Position.WIDTH, Position.HEIGHT, 1))
         targets = np.zeros((count, actionSize))
 
-        for i, idx in enumerate(np.random.randint(0, len(self.maxMemory), size=count)):
+        for i, idx in enumerate(np.random.randint(0, len(self.memory), size=count)):
             priceDelta, holding, reward, newPriceDelta = self.memory[idx][0]
             isLast = self.memory[idx][1]
-            holdingIndex = (holding + 1) / 0.2
+            holdingIndex = int((holding + 1) / 0.2)
 
             inputs[i] = priceDelta
             targets[i]= model.predict(priceDelta)[0] # target value is the action's future value
@@ -197,7 +197,7 @@ def createModel():
 
     model.compile(adam(lr=.001), "mse")
 
-    board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=True)
+    board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=False)
     board.set_model(model)
     return model, board
 
@@ -263,7 +263,7 @@ def train(stockName):
     model, board = createModel()
 
     # model.load_weights("model.h5")
-    pdb.set_trace()
+    #pdb.set_trace()
     filename = "{}/../data/train/{}.p".format(currentDir, stockName)
     company = pickle.load(open(filename, 'rb'))
     position = Position(company)
@@ -283,8 +283,8 @@ def train(stockName):
             if np.random.rand() <= epsilon:
                 position.holding = position.actionList[np.random.randint(0, position.ACTION_SIZE)]
             else:
-                q = model.predict(priceDelta)
-                action = np.argmax(q[0])
+                q = model.predict(priceDelta)[0]
+                action = np.argmax(q)
                 position.holding = position.actionList[action]
 
             reward, done = position.advance()
@@ -297,7 +297,7 @@ def train(stockName):
             loss = model.train_on_batch(inputs, targets)
 
             if epoch % 10 == 0:
-                print("Epoch {:03d} | Loss {:.4f}".format(e, loss))
+                print("Epoch {:03d} | Loss {:.4f}".format(epoch, loss))
 
                 # on_epoch_end requires validataData to be present. It doesn't really need
                 # the data to get the histogram, so we just give is a pre-fabricated one.
