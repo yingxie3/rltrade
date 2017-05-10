@@ -183,7 +183,7 @@ def createModel():
 
     model = Sequential()
     model.add(Conv2D(64, (Position.HEIGHT, Position.HEIGHT), input_shape=(Position.WIDTH, Position.HEIGHT, 1), 
-        strides=(1, 1), padding='valid', name='conv1', activation='relu'))
+        strides=(1, 1), padding='valid', name='conv1', activation='tanh'))
 
     '''
     model.add(Conv2D(64, (3, 1), strides=(1, 1), padding='valid', name='conv2', activation='relu'))
@@ -192,11 +192,11 @@ def createModel():
     '''
 
     model.add(Flatten(name='flatten'))
-    # model.add(Dense(2048, activation='relu'))
-    model.add(Dense(1024, activation='relu'))
+    # model.add(Dense(2048, activation='tanh'))
+    model.add(Dense(1024, activation='tanh'))
     model.add(Dense(num_actions))
 
-    model.compile(adam(lr=.001), "mse")
+    model.compile(adam(lr=.0001), "mse")
 
     board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=False)
     board.set_model(model)
@@ -258,7 +258,7 @@ def play(filename):
 
 def train(stockName):
     currentDir = os.path.dirname(os.path.realpath(__file__))
-    epsilon = 0.05  # exploration
+    epsilon = 0.3  # exploration
     batchSize = 100
     validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
     model, board = createModel()
@@ -286,6 +286,7 @@ def train(stockName):
             # with some probability we take a random holding position
             if np.random.rand() <= epsilon:
                 position.holding = position.actionList[np.random.randint(0, position.ACTION_SIZE)]
+                print("set holding to {}".format(position.holding))
             else:
                 q = model.predict(priceDelta)[0]
                 action = np.argmax(q)
@@ -300,8 +301,12 @@ def train(stockName):
             inputs, targets = history.getBatch(model, position.ACTION_SIZE, 32)
             loss = model.train_on_batch(inputs, targets)
 
-            #if position.current % 10 == 0:
-            print("day {} week {} | loss {:.4f}".format(position.current, position.currentWeek, loss))
+            print("day {} week {} holding {} reward {} | loss {:.4f}".format(position.current, position.currentWeek, position.holding, reward, loss))
+            if position.current % 100 == 0:
+                for w in range(position.WIDTH):
+                    print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[0][w][0][0], priceDelta[0][w][1][0],
+                        priceDelta[0][w][2][0], priceDelta[0][w][3][0], priceDelta[0][w][4][0], priceDelta[0][w][5][0]))
+                print("")
 
         # do some printing and model saving after one epoch
         print("=========== Epoch {:03d} | Loss {:.4f}".format(epoch, loss))
