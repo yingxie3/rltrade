@@ -5,6 +5,14 @@ import argparse
 import pdb
 import os
 import pickle
+import matplotlib.pyplot as plt
+from keras.models import Sequential
+from keras.layers.core import Dense
+from keras.layers.core import Flatten
+from keras.layers.convolutional import Conv2D
+from keras.callbacks import TensorBoard
+from keras.optimizers import adam
+from keras.optimizers import adadelta
 
 # All the data related to one company
 # Each quote is an array containing [date, open, close, volume]
@@ -72,11 +80,8 @@ class Position(object):
     actionList = [-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0]
     ACTION_SIZE = len(actionList)
 
-    def __init__(self, comp):
-        self.holding = 0 # 0.2 means 20% cash in this stock
+    def reset(self):
         self.currentWeek = self.WIDTH # index to the current week, this allows WIDTH/(WIDTH-1)
-        self.company = comp
-
         # move to the next week, this is the date we will match for the daily data.
         weekDate = self.company.weeklyDates[self.WIDTH+1]
 
@@ -98,6 +103,11 @@ class Position(object):
             self.company.prices[self.current-self.WIDTH:self.current] - 1.0
         self.weeklyPriceDelta = self.company.weeklyPrices[1:self.WIDTH+1] / self.company.weeklyPrices[0:self.WIDTH] - 1.0
         #self.data = np.concatenate((dailyPriceDelta, weeklyPriceDelta), axis=1)
+
+    def __init__(self, comp):
+        self.holding = 0 # 0.2 means 20% cash in this stock
+        self.company = comp
+        self.reset()
 
     # advance current by one trading day, returns the immediate incremental reward (in percentage)
     # and whether this is the last entry.
@@ -140,7 +150,7 @@ class ReplayHistory(object):
             del self.memory[0]
     
     # get batchSize of training samples, mapping states (?x50x6) to action reward values (?x11)
-    def getBatch(self, model, position, actionSize, batchSize):
+    def getBatch(self, model, actionSize, batchSize):
         count = min(len(self.maxMemory), batchSize)
         inputs = np.zeros((count, Position.WIDTH, Position.HEIGHT, 1))
         targets = np.zeros((count, actionSize))
@@ -162,6 +172,34 @@ class ReplayHistory(object):
             targets[i][holdingIndex] = (1 + reward) * Q * self.discount
         
         return inputs, targets
+
+# Implements the neural network model.
+def createModel():
+    # parameters
+    num_actions = Position.ACTION_SIZE
+    batch_size = 50
+    grid_size = 10
+
+    model = Sequential()
+    model.add(Conv2D(64, (Position.HEIGHT, Position.HEIGHT), input_shape=(Position.WIDTH, Position.HEIGHT, 1), 
+        strides=(1, 1), padding='valid', name='conv1', activation='relu'))
+
+    '''
+    model.add(Conv2D(64, (3, 1), strides=(1, 1), padding='valid', name='conv2', activation='relu'))
+    model.add(Conv2D(128, (3, 1), strides=(1, 1), padding='valid', name='conv3', activation='relu'))
+    model.add(Conv2D(128, (3, 1), strides=(1, 1), padding='valid', name='conv4', activation='relu'))
+    '''
+
+    model.add(Flatten(name='flatten'))
+    # model.add(Dense(2048, activation='relu'))
+    model.add(Dense(1024, activation='relu'))
+    model.add(Dense(num_actions))
+
+    model.compile(adam(lr=.001), "mse")
+
+    board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=True)
+    board.set_model(model)
+    return model, board
 
 def dump(filename):
     if filename == None:
@@ -217,12 +255,69 @@ def play(filename):
                     priceDelta[w][3], priceDelta[w][4], priceDelta[w][5]))
             print("")
 
-def main():
+def train(stockName):
     currentDir = os.path.dirname(os.path.realpath(__file__))
+    epsilon = 0.05  # exploration
+    batchSize = 100
+    validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
+    model, board = createModel()
 
+    # model.load_weights("model.h5")
+    pdb.set_trace()
+    filename = "{}/../data/train/{}.p".format(currentDir, stockName)
+    company = pickle.load(open(filename, 'rb'))
+    position = Position(company)
+    history = ReplayHistory(discount=0.999)
+
+    for epoch in range(1000):
+        # run the company from beginning to end in each epoch
+        position.holding = 0.0
+        position.reset()
+
+        nextPriceDelta = position.getOne().reshape((-1, position.WIDTH, position.HEIGHT, 1))
+        done = False
+        while not done:
+            priceDelta = nextPriceDelta
+
+            # with some probability we take a random holding position
+            if np.random.rand() <= epsilon:
+                position.holding = position.actionList[np.random.randint(0, position.ACTION_SIZE)]
+            else:
+                q = model.predict(priceDelta)
+                action = np.argmax(q[0])
+                position.holding = position.actionList[action]
+
+            reward, done = position.advance()
+            nextPriceDelta = position.getOne().reshape((-1, position.WIDTH, position.HEIGHT, 1))
+
+            history.remember(priceDelta, position.holding, reward, nextPriceDelta, done)
+
+            # Now get a batch from history and train
+            inputs, targets = history.getBatch(model, position.ACTION_SIZE, 32)
+            loss = model.train_on_batch(inputs, targets)
+
+            if epoch % 10 == 0:
+                print("Epoch {:03d} | Loss {:.4f}".format(e, loss))
+
+                # on_epoch_end requires validataData to be present. It doesn't really need
+                # the data to get the histogram, so we just give is a pre-fabricated one.
+                board.validation_data = validationData
+                logs = {'loss': loss}
+                board.on_epoch_end(epoch, logs)
+
+            # Save trained model weights and architecture, this will be used by the visualization code
+            if epoch % 100 == 0:
+                print("Saving model")
+                model.save_weights("model.h5", overwrite=True)
+                with open("model.json", "w") as outfile:
+                    json.dump(model.to_json(), outfile)
+
+
+def main():
     parser = argparse.ArgumentParser(description='Parsing and training')
     parser.add_argument("-d", "--dump", help="Dump data only.")
     parser.add_argument("-p", "--play", help="Play through one stock history contained in the specified file.")
+    parser.add_argument("-t", "--train", help="Train using the specified stock, can be all")
 
     args = parser.parse_args()
 
@@ -231,6 +326,8 @@ def main():
         dump(args.dump)
     elif args.play != None:
         play(args.play)
+    elif args.train != None:
+        train(args.train)
 
 if __name__ == '__main__':
     main()
