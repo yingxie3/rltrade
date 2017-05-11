@@ -77,7 +77,7 @@ class Company(object):
 # A position is the company, plus the holding information. 
 class Position(object):
     WIDTH = 50
-    HEIGHT = 6 
+    HEIGHT = 4 # just open/close and weekly open/close, no volume, this must match with getOne slice
     #actionList = [-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0]
     actionList = [-1.0, 0.0, 1.0]
     ACTION_SIZE = len(actionList)
@@ -129,8 +129,8 @@ class Position(object):
         self.dailyPriceDelta = np.concatenate((self.dailyPriceDelta[1:self.WIDTH], [newDelta]), axis=0)
 
         # get the reward using close price
-        #done = self.current+1 == len(self.company.dates)
-        done = self.current >= 1000
+        done = self.current+1 == len(self.company.dates)
+        #done = self.current >= 1000
         return self.dailyPriceDelta[self.WIDTH-1][self.company.CLOSE_INDEX] * self.holding, done
 
     # given holding and index, get the reward for the next day
@@ -139,7 +139,7 @@ class Position(object):
 
     # get the current state (50x6 graph)
     def getOne(self):
-        return np.concatenate((self.dailyPriceDelta, self.weeklyPriceDelta), axis=1)
+        return np.concatenate((self.dailyPriceDelta[:,0:2], self.weeklyPriceDelta[:,0:2]), axis=1)
 
 # When playing, we go through the Position in time order, and store the result below. This allows
 # us to use random batches when training.
@@ -171,7 +171,8 @@ class ReplayHistory(object):
                 # calculate Q value from the new state.
                 Q = np.max(model.predict(newPriceDelta)[0])
             else:
-                Q = 1.0
+                # we don't have a better boundary condition, just use the current predicted value
+                Q = np.max(model.predict(newPriceDelta)[0])
 
             # this is the compounding model, the method we use during testing must match this.
             targets[i][holdingIndex] = (1 + reward) * Q * self.discount
@@ -305,10 +306,10 @@ def train(stockName):
             loss = model.train_on_batch(inputs, targets)
 
             if position.current % 100 == 0:
-                print("day {} week {} holding {} reward {} | loss {:.4f}".format(position.current, position.currentWeek, position.holding, reward, loss))
+                print("day {} week {} holding {} reward {} | loss {}".format(position.current, position.currentWeek, position.holding, reward, loss))
                 for w in range(10):
-                    print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[0][w][0][0], priceDelta[0][w][1][0],
-                        priceDelta[0][w][2][0], priceDelta[0][w][3][0], priceDelta[0][w][4][0], priceDelta[0][w][5][0]))
+                    print("{:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[0][w][0][0], priceDelta[0][w][1][0],
+                        priceDelta[0][w][2][0], priceDelta[0][w][3][0]))
                 print("")
 
         # do some printing and model saving after one epoch
