@@ -78,8 +78,10 @@ class Company(object):
 class Position(object):
     WIDTH = 50
     HEIGHT = 6 
-    actionList = [-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    #actionList = [-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    actionList = [-1.0, 0.0, 1.0]
     ACTION_SIZE = len(actionList)
+    ACTION_INCREMENT = 2.0/(ACTION_SIZE-1)
 
     def reset(self):
         self.currentWeek = self.WIDTH # index to the current week, this allows WIDTH/(WIDTH-1)
@@ -161,7 +163,7 @@ class ReplayHistory(object):
         for i, idx in enumerate(np.random.randint(0, len(self.memory), size=count)):
             priceDelta, holding, reward, newPriceDelta = self.memory[idx][0]
             isLast = self.memory[idx][1]
-            holdingIndex = int((holding + 1) / 0.2)
+            holdingIndex = int((holding + 1) / Position.ACTION_INCREMENT)
 
             inputs[i] = priceDelta
             targets[i]= model.predict(priceDelta)[0] # target value is the action's future value
@@ -247,7 +249,7 @@ def play(filename):
     for idx in range(len(history.memory)):
         priceDelta, holding, reward, newPriceDelta = history.memory[idx][0]
         isLast = history.memory[idx][1]
-        holdingIndex = (holding + 1) / 0.2
+        holdingIndex = (holding + 1) / Position.ACTION_INCREMENT
         total *= (1 + reward)
         print("reward {} total {}".format(reward, total))
 
