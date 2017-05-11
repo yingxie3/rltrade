@@ -15,6 +15,9 @@ from keras.callbacks import TensorBoard
 from keras.optimizers import adam
 from keras.optimizers import adadelta
 
+# global parameters
+DONE_RATIO = 0.1 # percentage of samples treated as done
+
 # All the data related to one company
 # Each quote is an array containing [date, open, close, volume]
 # the quotes are stored in increasing order chronologically
@@ -162,7 +165,7 @@ class ReplayHistory(object):
 
         for i, idx in enumerate(np.random.randint(0, len(self.memory), size=count)):
             priceDelta, holding, reward, newPriceDelta = self.memory[idx][0]
-            isLast = self.memory[idx][1]
+            isLast = self.memory[idx][1] or np.random.rand() < DONE_RATIO
             holdingIndex = int((holding + 1) / Position.ACTION_INCREMENT)
 
             inputs[i] = priceDelta
