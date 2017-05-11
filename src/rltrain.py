@@ -155,7 +155,7 @@ class ReplayHistory(object):
             del self.memory[0]
     
     # get batchSize of training samples, mapping states (?x50x6) to action reward values (?x11)
-    def getBatch(self, model, actionSize, batchSize):
+    def getBatch(self, model, actionSize, batchSize, printTarget):
         count = min(len(self.memory), batchSize)
         inputs = np.zeros((count, Position.WIDTH, Position.HEIGHT, 1))
         targets = np.zeros((count, actionSize))
@@ -171,11 +171,14 @@ class ReplayHistory(object):
                 # calculate Q value from the new state.
                 Q = np.max(model.predict(newPriceDelta)[0])
             else:
-                # we don't have a better boundary condition, just use the current predicted value
-                Q = np.max(model.predict(newPriceDelta)[0])
+                Q = 1.0
 
             # this is the compounding model, the method we use during testing must match this.
-            targets[i][holdingIndex] = (1 + reward) * Q * self.discount
+            newTarget = (1 + reward) * Q * self.discount
+            if printTarget:
+                print("target for action {} index {}: {} => {} = (1 + {}) * {} * {}".format(holding, holdingIndex, 
+                    targets[i][holdingIndex], newTarget, reward, Q, self.discount))
+            targets[i][holdingIndex] = newTarget
         
         return inputs, targets
 
@@ -302,7 +305,7 @@ def train(stockName):
             history.remember(priceDelta, position.holding, reward, nextPriceDelta, done)
 
             # Now get a batch from history and train
-            inputs, targets = history.getBatch(model, position.ACTION_SIZE, 32)
+            inputs, targets = history.getBatch(model, position.ACTION_SIZE, 32, position.current % 100 == 0)
             loss = model.train_on_batch(inputs, targets)
 
             if position.current % 100 == 0:
