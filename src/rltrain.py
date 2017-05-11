@@ -127,7 +127,9 @@ class Position(object):
         self.dailyPriceDelta = np.concatenate((self.dailyPriceDelta[1:self.WIDTH], [newDelta]), axis=0)
 
         # get the reward using close price
-        return self.dailyPriceDelta[self.WIDTH-1][self.company.CLOSE_INDEX] * self.holding, self.current+1 == len(self.company.dates)
+        #done = self.current+1 == len(self.company.dates)
+        done = self.current >= 1000
+        return self.dailyPriceDelta[self.WIDTH-1][self.company.CLOSE_INDEX] * self.holding, done
 
     # given holding and index, get the reward for the next day
     def getReward(self, dailyIndex, holding):
@@ -183,20 +185,20 @@ def createModel():
 
     model = Sequential()
     model.add(Conv2D(64, (Position.HEIGHT, Position.HEIGHT), input_shape=(Position.WIDTH, Position.HEIGHT, 1), 
-        strides=(1, 1), padding='valid', name='conv1', activation='tanh'))
+        strides=(1, 1), padding='valid', name='conv1', activation='relu'))
+    model.add(Conv2D(64, (3, 1), strides=(1, 1), padding='valid', name='conv2', activation='relu'))
 
     '''
-    model.add(Conv2D(64, (3, 1), strides=(1, 1), padding='valid', name='conv2', activation='relu'))
     model.add(Conv2D(128, (3, 1), strides=(1, 1), padding='valid', name='conv3', activation='relu'))
     model.add(Conv2D(128, (3, 1), strides=(1, 1), padding='valid', name='conv4', activation='relu'))
     '''
 
     model.add(Flatten(name='flatten'))
-    # model.add(Dense(2048, activation='tanh'))
-    model.add(Dense(1024, activation='tanh'))
+    model.add(Dense(2048, activation='relu'))
+    model.add(Dense(1024, activation='relu'))
     model.add(Dense(num_actions))
 
-    model.compile(adam(lr=.0001), "mse")
+    model.compile(loss='mse', optimizer='sgd')
 
     board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=False)
     board.set_model(model)
@@ -258,7 +260,7 @@ def play(filename):
 
 def train(stockName):
     currentDir = os.path.dirname(os.path.realpath(__file__))
-    epsilon = 0.3  # exploration
+    epsilon = 0.1  # exploration
     batchSize = 100
     validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
     model, board = createModel()
@@ -286,7 +288,6 @@ def train(stockName):
             # with some probability we take a random holding position
             if np.random.rand() <= epsilon:
                 position.holding = position.actionList[np.random.randint(0, position.ACTION_SIZE)]
-                print("set holding to {}".format(position.holding))
             else:
                 q = model.predict(priceDelta)[0]
                 action = np.argmax(q)
@@ -301,9 +302,9 @@ def train(stockName):
             inputs, targets = history.getBatch(model, position.ACTION_SIZE, 32)
             loss = model.train_on_batch(inputs, targets)
 
-            print("day {} week {} holding {} reward {} | loss {:.4f}".format(position.current, position.currentWeek, position.holding, reward, loss))
             if position.current % 100 == 0:
-                for w in range(position.WIDTH):
+                print("day {} week {} holding {} reward {} | loss {:.4f}".format(position.current, position.currentWeek, position.holding, reward, loss))
+                for w in range(10):
                     print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[0][w][0][0], priceDelta[0][w][1][0],
                         priceDelta[0][w][2][0], priceDelta[0][w][3][0], priceDelta[0][w][4][0], priceDelta[0][w][5][0]))
                 print("")
