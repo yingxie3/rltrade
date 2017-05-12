@@ -17,7 +17,7 @@ from keras.optimizers import adadelta
 
 # global parameters
 DONE_RATIO = 0.1 # percentage of samples treated as done
-EPOCH_COUNT = 2 # the number of epochs per training run
+EPOCH_PER_STOCK = 2 # the number of epochs per training run
 
 # All the data related to one company
 # Each quote is an array containing [date, open, close, volume]
@@ -274,18 +274,30 @@ def train(stockName):
     batchSize = 100
     validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
     model, board = createModel()
+    history = ReplayHistory(discount=0.999)
 
     try:
         model.load_weights("model.h5")
     except OSError:
         print("can't find model file to load")
 
-    filename = "{}/../data/train/{}.p".format(currentDir, stockName)
-    company = pickle.load(open(filename, 'rb'))
-    position = Position(company)
-    history = ReplayHistory(discount=0.999)
+    stockList = []
+    if stockName == 'ALL':
+        for filename in os.listdir("{}/../data/train".format(currentDir)):
+            if filename.endswith(".p"):
+                filear = filename.split('.')
+                stockList.append(filear[0])
+    else:
+        stockList.append(stockName)
 
-    for epoch in range(EPOCH_COUNT):
+    for epoch in range(len(stockList)*EPOCH_PER_STOCK):
+        if epoch % EPOCH_PER_STOCK == 0:
+            stockName = stockList[int(epoch / EPOCH_PER_STOCK)]
+            print("=====training {}=====".format(stockName))
+            filename = "{}/../data/train/{}.p".format(currentDir, stockName)
+            company = pickle.load(open(filename, 'rb'))
+            position = Position(company)
+
         # run the company from beginning to end in each epoch
         position.holding = 0.0
         position.reset()
@@ -334,44 +346,11 @@ def train(stockName):
         with open("model.json", "w") as outfile:
             json.dump(model.to_json(), outfile)
 
-def test(stockName):
-    currentDir = os.path.dirname(os.path.realpath(__file__))
-    model, board = createModel()
-
-    try:
-        model.load_weights("model.h5")
-    except OSError:
-        print("can't find model file to load")
-
-    filename = "{}/../data/train/{}.p".format(currentDir, stockName)
-    company = pickle.load(open(filename, 'rb'))
-    position = Position(company)
-
-    done = False
-    nextPriceDelta = position.getOne().reshape((-1, position.WIDTH, position.HEIGHT, 1))
-    total = 1
-    count = [0, 0, 0]
-    while not done:
-        priceDelta = nextPriceDelta
-        q = model.predict(priceDelta)[0]
-        action = np.argmax(q)
-        position.holding = position.actionList[action]
-        count[action] += 1
-
-        reward, done = position.advance()
-        nextPriceDelta = position.getOne().reshape((-1, position.WIDTH, position.HEIGHT, 1))
-        total *= (1+reward)
-        print("{} {:.4f} position {} reward {:.4f} total {:.4f}".format(position.company.dates[position.current],
-            position.company.prices[position.current][Company.CLOSE_INDEX], position.holding, reward, total))
-    
-    print("total sell {} hold {} buy {}".format(count[0], count[1], count[2]))
-
 def main():
     parser = argparse.ArgumentParser(description='Parsing and training')
     parser.add_argument("-d", "--dump", help="Dump data only.")
     parser.add_argument("-p", "--play", help="Play through one stock history contained in the specified file.")
     parser.add_argument("-t", "--train", help="Train using the specified stock, can be all")
-    parser.add_argument("-r", "--test", help="Test using the specified stock, can be all")
 
     args = parser.parse_args()
 
@@ -380,18 +359,8 @@ def main():
         dump(args.dump)
     elif args.play != None:
         play(args.play)
-    elif args.test != None:
-        test(args.test)
     elif args.train != None:
-        if args.train != 'ALL':
-            train(args.train)
-        else:
-            currentDir = os.path.dirname(os.path.realpath(__file__))
-            for filename in os.listdir("{}/../data/train".format(currentDir)):
-                if filename.endswith(".p"):
-                    filear = filename.split('.')
-                    print("training {}".format(filear[0]))
-                    train(filear[0])
+        train(args.train)
 
 if __name__ == '__main__':
     main()
