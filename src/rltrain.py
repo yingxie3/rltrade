@@ -17,6 +17,7 @@ from keras.optimizers import adadelta
 
 # global parameters
 DONE_RATIO = 0.1 # percentage of samples treated as done
+EPOCH_COUNT = 2 # the number of epochs per training run
 
 # All the data related to one company
 # Each quote is an array containing [date, open, close, volume]
@@ -284,7 +285,7 @@ def train(stockName):
     position = Position(company)
     history = ReplayHistory(discount=0.999)
 
-    for epoch in range(1000):
+    for epoch in range(EPOCH_COUNT):
         # run the company from beginning to end in each epoch
         position.holding = 0.0
         position.reset()
@@ -379,10 +380,18 @@ def main():
         dump(args.dump)
     elif args.play != None:
         play(args.play)
-    elif args.train != None:
-        train(args.train)
     elif args.test != None:
         test(args.test)
+    elif args.train != None:
+        if args.train != 'ALL':
+            train(args.train)
+        else:
+            currentDir = os.path.dirname(os.path.realpath(__file__))
+            for filename in os.listdir("{}/../data/train".format(currentDir)):
+                if filename.endswith(".p"):
+                    filear = filename.split('.')
+                    print("training {}".format(filear[0]))
+                    train(filear[0])
 
 if __name__ == '__main__':
     main()
