@@ -48,7 +48,7 @@ class Company(object):
         days = (self.dates[len(self.dates)-1] - self.dates[0]).days
         weeks = int(days / 7)
         self.weeklyDates = []
-        self.weeklyPrices = np.zeros((weeks, self.MAX_INDEX+1))
+        self.weeklyPrices = np.zeros((weeks+1, self.MAX_INDEX+1))
 
         # find starting day (always a Monday) and ending day (always a Friday)
         start = 0
@@ -333,12 +333,44 @@ def train(stockName):
         with open("model.json", "w") as outfile:
             json.dump(model.to_json(), outfile)
 
+def test(stockName):
+    currentDir = os.path.dirname(os.path.realpath(__file__))
+    model, board = createModel()
+
+    try:
+        model.load_weights("model.h5")
+    except OSError:
+        print("can't find model file to load")
+
+    filename = "{}/../data/train/{}.p".format(currentDir, stockName)
+    company = pickle.load(open(filename, 'rb'))
+    position = Position(company)
+
+    done = False
+    nextPriceDelta = position.getOne().reshape((-1, position.WIDTH, position.HEIGHT, 1))
+    total = 1
+    count = [0, 0, 0]
+    while not done:
+        priceDelta = nextPriceDelta
+        q = model.predict(priceDelta)[0]
+        action = np.argmax(q)
+        position.holding = position.actionList[action]
+        count[action] += 1
+
+        reward, done = position.advance()
+        nextPriceDelta = position.getOne().reshape((-1, position.WIDTH, position.HEIGHT, 1))
+        total *= (1+reward)
+        print("{} {:.4f} position {} reward {:.4f} total {:.4f}".format(position.company.dates[position.current],
+            position.company.prices[position.current][Company.CLOSE_INDEX], position.holding, reward, total))
+    
+    print("total sell {} hold {} buy {}".format(count[0], count[1], count[2]))
 
 def main():
     parser = argparse.ArgumentParser(description='Parsing and training')
     parser.add_argument("-d", "--dump", help="Dump data only.")
     parser.add_argument("-p", "--play", help="Play through one stock history contained in the specified file.")
     parser.add_argument("-t", "--train", help="Train using the specified stock, can be all")
+    parser.add_argument("-r", "--test", help="Test using the specified stock, can be all")
 
     args = parser.parse_args()
 
@@ -349,6 +381,8 @@ def main():
         play(args.play)
     elif args.train != None:
         train(args.train)
+    elif args.test != None:
+        test(args.test)
 
 if __name__ == '__main__':
     main()
