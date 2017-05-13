@@ -14,6 +14,7 @@ from keras.layers.convolutional import Conv2D
 from keras.callbacks import TensorBoard
 from keras.optimizers import adam
 from keras.optimizers import adadelta
+from shutil import copyfile
 
 # global parameters
 DONE_RATIO = 0.1 # percentage of samples treated as done
@@ -208,7 +209,7 @@ def createModel():
     model.add(Dense(1024, activation='relu'))
     model.add(Dense(num_actions))
 
-    model.compile(loss='mse', optimizer='sgd')
+    model.compile(loss='mse', optimizer=adam())
 
     board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=False)
     board.set_model(model)
@@ -274,7 +275,7 @@ def train(stockName):
     batchSize = 100
     validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
     model, board = createModel()
-    history = ReplayHistory(discount=0.999)
+    history = ReplayHistory(discount=1.0)
 
     try:
         model.load_weights("model.h5")
@@ -342,6 +343,12 @@ def train(stockName):
 
         # Save trained model weights and architecture, this will be used by the visualization code
         print("Saving model")
+        try:
+            copyfile('model.h5', 'model.h5.saved')
+            copyfile('model.json', 'model.json.saved')
+        except FileNotFoundError:
+            print("didn't find model files to save")
+
         model.save_weights("model.h5", overwrite=True)
         with open("model.json", "w") as outfile:
             json.dump(model.to_json(), outfile)
