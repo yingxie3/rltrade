@@ -17,13 +17,13 @@ from keras.optimizers import adadelta
 from shutil import copyfile
 
 # global parameters
-DONE_RATIO = 0.1 # percentage of samples treated as done
 EPOCH_PER_STOCK = 2 # the number of epochs per training run
 
 # All the data related to one company
 # Each quote is an array containing [date, open, close, volume]
 # the quotes are stored in increasing order chronologically
 class Company(object):
+    DAY_INCREMENT = 0.25
     OPEN_INDEX = 0
     CLOSE_INDEX = 1
     VOLUME_INDEX = 2
@@ -33,21 +33,37 @@ class Company(object):
         self.name = stockName
 
     def resetData(self, datalen):
-        self.prices = np.zeros((datalen, self.MAX_INDEX+1))
+        self.prices = []
         self.dates = []
+        self.days = []
 
     def getDataLen(self):
         return len(self.dates)
 
     def addEntry(self, d, o, c, v):
-        count = len(self.dates)
+        if len(self.dates) != 0:
+            lastDate = self.dates[-1]
+            lastPrice = self.prices[-1]
+
+            # we always fill in the missing data, using the last valid data
+            while (d - lastDate).days > 1:
+                lastDate += datetime.timedelta(days=1)
+                lastDay = lastDate.weekday()
+                if lastDay >= 0 and lastDay <= 4:
+                    self.dates.append(lastDate)
+                    self.days.append(lastDay * self.DAY_INCREMENT)
+                    self.prices.append(lastPrice)
+
         self.dates.append(d)
-        self.prices[count] = [o, c, v]
+        self.days.append(d.weekday() * self.DAY_INCREMENT)
+        self.prices.append([o, c, v])
 
     # we only generate data for complete weeks
     def generateWeeklyData(self):
         assert len(self.dates) == len(self.prices)
-        days = (self.dates[len(self.dates)-1] - self.dates[0]).days
+        days = (self.dates[-1] - self.dates[0]).days
+        self.prices = np.array(self.prices)
+
         weeks = int(days / 7)
         self.weeklyDates = []
         self.weeklyPrices = np.zeros((weeks+1, self.MAX_INDEX+1))
@@ -82,7 +98,7 @@ class Company(object):
 # A position is the company, plus the holding information. 
 class Position(object):
     WIDTH = 50
-    HEIGHT = 4 # just open/close and weekly open/close, no volume, this must match with getOne slice
+    HEIGHT = 5 # just weekday indicator, open/close and weekly open/close, no volume, this must match with getOne slice
     #actionList = [-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0]
     actionList = [-1.0, 0.0, 1.0]
     ACTION_SIZE = len(actionList)
@@ -94,9 +110,8 @@ class Position(object):
         weekDate = self.company.weeklyDates[self.WIDTH+1]
 
         # index for the current day. The date above is the Monday's date for the weekly data.
-        # The current need to be at least that. The following formula guarantees it,
-        # because some of the weeks have fewer than 5 days.
-        self.current = (self.WIDTH+1) * 5
+        # The current need to be at least that. The following formula guarantees it.
+        self.current = (self.WIDTH+1) * 5 + 5
         date = self.company.dates[self.current]
         assert date >= weekDate
 
@@ -104,9 +119,10 @@ class Position(object):
         while date > weekDate:
             self.current -= 1
             date = self.company.dates[self.current]
-        assert self.current >= (self.WIDTH+1) * 5 - 10  # only that many holidays in a year
+        assert self.current >= (self.WIDTH+1) * 5
 
         # we always store the np array representation of the current data.
+        self.days = np.array(self.company.days[self.current+1-self.WIDTH:self.current+1]).reshape((-1, 1))
         self.dailyPriceDelta = self.company.prices[self.current+1-self.WIDTH:self.current+1] /       \
             self.company.prices[self.current-self.WIDTH:self.current] - 1.0
         self.weeklyPriceDelta = self.company.weeklyPrices[1:self.WIDTH+1] / self.company.weeklyPrices[0:self.WIDTH] - 1.0
@@ -120,10 +136,12 @@ class Position(object):
     # advance current by one trading day, returns the immediate incremental reward (in percentage)
     # and whether this is the last entry.
     def advance(self):
-        previousDay = self.company.dates[self.current].weekday()
+        previousDay = self.company.days[self.current]
         self.current += 1
+        currentDay = self.company.days[self.current]
+        self.days = np.concatenate((self.days[1:self.WIDTH], [[currentDay]]), axis=0)
 
-        if self.company.dates[self.current].weekday() < previousDay:
+        if currentDay < previousDay:
             # a new week, advance week array
             self.currentWeek += 1
             newDelta = self.company.weeklyPrices[self.currentWeek] / self.company.weeklyPrices[self.currentWeek-1] - 1.0
@@ -136,15 +154,11 @@ class Position(object):
         # get the reward using close price
         done = self.current+1 == len(self.company.dates)
         #done = self.current >= 1000
-        return self.dailyPriceDelta[self.WIDTH-1][self.company.CLOSE_INDEX] * self.holding, done
-
-    # given holding and index, get the reward for the next day
-    def getReward(self, dailyIndex, holding):
-        return (self.company.prices[dailyIndex+1] / self.company.prices[dailyIndex] - 1.0) * holding
+        return newDelta[self.company.CLOSE_INDEX] * self.holding, done
 
     # get the current state (50x6 graph)
     def getOne(self):
-        return np.concatenate((self.dailyPriceDelta[:,0:2], self.weeklyPriceDelta[:,0:2]), axis=1)
+        return np.concatenate((self.days, self.dailyPriceDelta[:,0:2], self.weeklyPriceDelta[:,0:2]), axis=1)
 
 # When playing, we go through the Position in time order, and store the result below. This allows
 # us to use random batches when training.
@@ -167,7 +181,7 @@ class ReplayHistory(object):
 
         for i, idx in enumerate(np.random.randint(0, len(self.memory), size=count)):
             priceDelta, holding, reward, newPriceDelta = self.memory[idx][0]
-            isLast = self.memory[idx][1] or np.random.rand() < DONE_RATIO
+            isLast = self.memory[idx][1] or newPriceDelta[0][-1][0][0] == 1.0 # close out position at Friday.
             holdingIndex = int((holding + 1) / Position.ACTION_INCREMENT)
 
             inputs[i] = priceDelta
@@ -265,8 +279,8 @@ def play(filename):
         if count < 5:
             count += 1
             for w in range(position.WIDTH):
-                print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[w][0], priceDelta[w][1], priceDelta[w][2], 
-                    priceDelta[w][3], priceDelta[w][4], priceDelta[w][5]))
+                print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[w][0], priceDelta[w][1], priceDelta[w][2], 
+                    priceDelta[w][3], priceDelta[w][4]))
             print("")
 
 def train(stockName):
