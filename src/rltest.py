@@ -24,7 +24,7 @@ def test(stockName):
     model, board = createModel()
 
     try:
-        model.load_weights("model.h5")
+        model.load_weights(currentDir + "/model.h5")
     except OSError:
         print("can't find model file to load")
 
@@ -40,6 +40,13 @@ def test(stockName):
         priceDelta = nextPriceDelta
         q = model.predict(priceDelta)[0]
         action = np.argmax(q)
+        if action == 1:
+            # When the model says hold, use the future predicted value to decide the real action
+            if q[action] < 0.998:
+                action = 0
+            elif q[action] > 1.002:
+                action = 2
+
         position.holding = position.actionList[action]
         count[action] += 1
 

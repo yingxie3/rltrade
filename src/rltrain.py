@@ -342,8 +342,8 @@ def train(stockName):
             if position.current % 100 == 0:
                 print("day {} week {} holding {} reward {} | loss {}".format(position.current, position.currentWeek, position.holding, reward, loss))
                 for w in range(10):
-                    print("{:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[0][w][0][0], priceDelta[0][w][1][0],
-                        priceDelta[0][w][2][0], priceDelta[0][w][3][0]))
+                    print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f} ".format(priceDelta[0][w][0][0], priceDelta[0][w][1][0],
+                        priceDelta[0][w][2][0], priceDelta[0][w][3][0], priceDelta[0][w][4][0]))
                 print("")
 
         # do some printing and model saving after one epoch
