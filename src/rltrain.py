@@ -181,7 +181,7 @@ class ReplayHistory(object):
 
         for i, idx in enumerate(np.random.randint(0, len(self.memory), size=count)):
             priceDelta, holding, reward, newPriceDelta = self.memory[idx][0]
-            isLast = self.memory[idx][1] or newPriceDelta[0][-1][0][0] == 1.0 # close out position at Friday.
+            isLast = self.memory[idx][1]  # or newPriceDelta[0][-1][0][0] == 1.0 # close out position at Friday.
             holdingIndex = int((holding + 1) / Position.ACTION_INCREMENT)
 
             inputs[i] = priceDelta
@@ -202,7 +202,7 @@ class ReplayHistory(object):
         return inputs, targets
 
 # Implements the neural network model.
-def createModel():
+def createModel(createBoard):
     # parameters
     num_actions = Position.ACTION_SIZE
     batch_size = 50
@@ -225,8 +225,10 @@ def createModel():
 
     model.compile(loss='mse', optimizer=adam())
 
-    board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=False)
-    board.set_model(model)
+    board = None
+    if createBoard:
+        board = TensorBoard(log_dir='./logs', histogram_freq=2, write_graph=True, write_images=False)
+        board.set_model(model)
     return model, board
 
 def dump(filename):
@@ -285,11 +287,13 @@ def play(filename):
 
 def train(stockName):
     currentDir = os.path.dirname(os.path.realpath(__file__))
-    epsilon = 0.1  # exploration
+    epsilon = 0.3  # exploration
     batchSize = 100
     validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
-    model, board = createModel()
+    model, board = createModel(True)
     history = ReplayHistory(discount=1.0)
+
+    replayModel, replayBoard = createModel(False)
 
     try:
         model.load_weights("model.h5")
@@ -306,6 +310,11 @@ def train(stockName):
         stockList.append(stockName)
 
     for epoch in range(len(stockList)*EPOCH_PER_STOCK):
+        try:
+            replayModel.load_weights("model.h5")
+        except OSError:
+            print("can't find model file to load")
+
         if epoch % EPOCH_PER_STOCK == 0:
             stockName = stockList[int(epoch / EPOCH_PER_STOCK)]
             print("=====training {}=====".format(stockName))
@@ -326,7 +335,7 @@ def train(stockName):
             if np.random.rand() <= epsilon:
                 position.holding = position.actionList[np.random.randint(0, position.ACTION_SIZE)]
             else:
-                q = model.predict(priceDelta)[0]
+                q = replayModel.predict(priceDelta)[0]
                 action = np.argmax(q)
                 position.holding = position.actionList[action]
 
@@ -336,7 +345,7 @@ def train(stockName):
             history.remember(priceDelta, position.holding, reward, nextPriceDelta, done)
 
             # Now get a batch from history and train
-            inputs, targets = history.getBatch(model, position.ACTION_SIZE, 32, position.current % 100 == 0)
+            inputs, targets = history.getBatch(replayModel, position.ACTION_SIZE, 32, position.current % 100 == 0)
             loss = model.train_on_batch(inputs, targets)
 
             if position.current % 100 == 0:
