@@ -21,7 +21,7 @@ from keras.optimizers import adadelta
 
 def test(stockName):
     currentDir = os.path.dirname(os.path.realpath(__file__))
-    model, board = createModel()
+    model, board = createModel(False)
 
     try:
         model.load_weights(currentDir + "/model.h5")
@@ -59,7 +59,7 @@ def test(stockName):
     print("total sell {} hold {} buy {}".format(count[0], count[1], count[2]))
 
 def printModel():
-    model, board = createModel()
+    model, board = createModel(False)
     try:
         model.load_weights("model.h5")
     except OSError:

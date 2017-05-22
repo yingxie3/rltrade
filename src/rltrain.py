@@ -193,9 +193,9 @@ class ReplayHistory(object):
                 Q = 1.0
 
             # this is the compounding model, the method we use during testing must match this.
-            newTarget = (1 + reward) * Q * self.discount
+            newTarget = reward + Q * self.discount
             if printTarget:
-                print("target for action {} index {}: {} => {} = (1 + {}) * {} * {}".format(holding, holdingIndex, 
+                print("target for action {} index {}: {} => {} = {} + {} * {}".format(holding, holdingIndex, 
                     targets[i][holdingIndex], newTarget, reward, Q, self.discount))
             targets[i][holdingIndex] = newTarget
         
@@ -255,7 +255,7 @@ def play(filename):
         return
     company = pickle.load(open(filename, 'rb'))
     position = Position(company)
-    history = ReplayHistory(discount=1.0)
+    history = ReplayHistory(discount=0.95)
 
     print("Playing history for {}".format(company.name))
     position.holding = 1.0
@@ -291,7 +291,7 @@ def train(stockName):
     batchSize = 100
     validationData = [np.ones((batchSize, Position.WIDTH, Position.HEIGHT, 1))]
     model, board = createModel(True)
-    history = ReplayHistory(discount=1.0)
+    history = ReplayHistory(discount=0.95)
 
     replayModel, replayBoard = createModel(False)
 
